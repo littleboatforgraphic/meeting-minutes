@@ -1,0 +1,27 @@
+# One stack per company. Run from deploy/companies/<id>/ (see scripts/new-company.sh), or from the repo root for dev.
+name: mm-${COMPANY_ID:-dev}
+
+services:
+  web:
+    build: {context: "${REPO_DIR:-.}", args: {VOICE: "${VOICE:-1}"}}
+    image: meeting-minutes:latest
+    env_file: .env
+    volumes:
+      - ./company.yaml:/config/company.yaml:ro
+      - data:/data
+    ports:
+      - "127.0.0.1:${HOST_PORT:-8000}:8000"
+    restart: unless-stopped
+
+  worker:
+    image: meeting-minutes:latest
+    command: ["mm", "worker"]
+    env_file: .env
+    volumes:
+      - ./company.yaml:/config/company.yaml:ro
+      - data:/data
+    depends_on: [web]
+    restart: unless-stopped
+
+volumes:
+  data:

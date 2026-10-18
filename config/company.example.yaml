@@ -1,0 +1,47 @@
+# One file per company stack. Secrets (keys, passwords, tokens) go in .env, never here.
+company:
+  id: acme
+  name: Acme Sdn Bhd
+  timezone: Asia/Kuala_Lumpur
+  erp_customer_code: C0001        # llm-gateway team_id
+
+output_language: en
+
+asr:
+  model: ilmu-asr-v4.2            # any OpenAI-compatible /audio/transcriptions model on the gateway
+  language: null                  # leave null for mixed EN/BM/ZH/Cantonese meetings
+  prompt_terms: [Acme, AutoCount] # names/jargon that help the ASR
+  vad: webrtc
+  max_segment_seconds: 30
+  concurrency: 4
+
+llm:
+  model: ilmu-claw
+
+voice:
+  diarization: ecapa              # ecapa | none
+  voiceprints_allowed: true       # false = never store voiceprints for this company
+  voiceprints_default_on: false   # default of the per-meeting switch
+
+directory: {provider: internal}   # people kept in this stack's DB (import from HR Excel/CSV)
+calendar: {provider: none}
+
+notifiers:
+  email: {enabled: true}          # uses SMTP_* from .env; skipped if the company has no email
+  whatsapp: {enabled: false, template_name: null, template_language: en}
+  telegram: {enabled: true, bot_username: AcmeAgentsBot}
+
+tasks:
+  sink: internal
+  reminders: {enabled: true, days_before: [2, 0], overdue_every_days: 2, send_hour: 9}
+
+retention: {transcript_days: 7, minutes_days: 90, tasks_days: 90}
+
+auth:
+  method: password                # password | otp | password+otp
+  remember_device: true           # false = sign out when the app/browser is fully closed
+  session_days: 90
+  logout_on_app_update: true
+  otp_channels: [email, telegram, whatsapp]
+
+central: {enabled: false, url: null}
