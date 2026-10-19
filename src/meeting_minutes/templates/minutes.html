@@ -1,0 +1,56 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>{{ meeting.title }}</title>
+<style>
+  @page { size: A4; margin: 18mm 16mm; @bottom-right { content: "Page " counter(page) " of " counter(pages); font-size: 8pt; color: #666; } }
+  body { font-family: "DejaVu Sans", Arial, sans-serif; font-size: 10pt; color: #111; }
+  h1 { font-size: 15pt; margin: 0 0 2mm; }
+  h2 { font-size: 11pt; border-bottom: 1px solid #999; padding-bottom: 1mm; margin-top: 6mm; }
+  h3 { font-size: 10pt; margin: 4mm 0 1mm; }
+  .company { font-size: 9pt; color: #555; text-transform: uppercase; letter-spacing: .5px; }
+  table.meta td { padding: 1px 8px 1px 0; vertical-align: top; }
+  table.actions { width: 100%; border-collapse: collapse; margin-top: 2mm; }
+  table.actions th, table.actions td { border: 1px solid #aaa; padding: 3px 5px; text-align: left; vertical-align: top; }
+  table.actions th { background: #eee; }
+  ul { margin: 1mm 0 1mm 5mm; padding-left: 3mm; }
+  .label { color: #555; }
+  .footer { margin-top: 10mm; font-size: 9pt; color: #333; border-top: 1px solid #ccc; padding-top: 2mm; }
+</style></head>
+<body>
+<div class="company">{{ company.name }}</div>
+<h1>Minutes of Meeting: {{ m.title or meeting.title }}</h1>
+<table class="meta">
+  <tr><td class="label">Date / time</td><td>{% if started %}{{ started.strftime('%d %b %Y, %H:%M') }}{% if ended %} to {{ ended.strftime('%H:%M') }}{% endif %}{% endif %}</td></tr>
+  <tr><td class="label">Chair</td><td>{{ chair }}</td></tr>
+  <tr><td class="label">Attendees</td><td>{{ attendees | join(', ') }}</td></tr>
+  <tr><td class="label">Recorded by</td><td>Meeting Secretary Agent</td></tr>
+</table>
+
+<h2>Summary</h2>
+<p>{{ m.summary }}</p>
+
+{% for a in m.agenda %}
+<h2>{{ loop.index }}. {{ a.title }}</h2>
+{% if a.discussion %}<ul>{% for d in a.discussion %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+{% if a.decisions %}<h3>Decisions</h3><ul>{% for d in a.decisions %}<li>{{ d }}</li>{% endfor %}</ul>{% endif %}
+{% endfor %}
+
+<h2>Action items</h2>
+{% if items %}
+<table class="actions">
+  <tr><th>No.</th><th>Action</th><th>Owner</th><th>Due</th><th>Remarks</th></tr>
+  {% for i in items %}
+  <tr><td>{{ i.no }}</td><td>{{ i.task }}</td><td>{{ i.owner_name }}</td>
+      <td>{{ i.due_date or '' }}{% if i.due_as_said %}<br><span class="label">({{ i.due_as_said }})</span>{% endif %}</td>
+      <td>{{ i.remark or '' }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}<p>No action items.</p>{% endif %}
+
+{% if m.other_business %}<h2>Any other business</h2><ul>{% for o in m.other_business %}<li>{{ o }}</li>{% endfor %}</ul>{% endif %}
+{% if m.next_meeting %}<h2>Next meeting</h2><p>{{ m.next_meeting }}</p>{% endif %}
+
+<div class="footer">
+{% if approved_by %}Approved by {{ approved_by }} on {{ approved_at.strftime('%d %b %Y %H:%M') }}.{% else %}DRAFT: not yet approved.{% endif %}
+Generated from an automatic transcript; please report corrections to the chair.
+</div>
+</body></html>
