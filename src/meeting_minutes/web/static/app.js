@@ -382,6 +382,7 @@ async function viewTasks() {
 
 // ---------------- people (admin) ----------------
 async function viewPeople() {
+  if (S.me.role !== "admin") { location.hash = "#/"; return; }
   S.people = await api("/api/people");
   const form = (p = {}) => `<form id="pf" class="card"><h2>${p.id ? "Edit " + esc(p.name) : "Add person"}</h2>
     <div class="row"><div><label>Name</label><input name="name" value="${esc(p.name)}" required></div>
