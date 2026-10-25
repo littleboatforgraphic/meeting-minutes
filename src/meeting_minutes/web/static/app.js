@@ -96,7 +96,8 @@ async function viewInvite(token) {
     <div class="actions"><button>Save and sign in</button></div></form></div>`;
   $("form").onsubmit = async (e) => {
     e.preventDefault();
-    try { await api(`/api/auth/invite/${encodeURIComponent(token)}`, { method: "POST", json: { password: e.target.password.value } }); signedIn(); }
+    try { const r = await api(`/api/auth/invite/${encodeURIComponent(token)}`, { method: "POST", json: { password: e.target.password.value } });
+      if (r.sign_in) { toast("Password set. Sign in to continue."); location.hash = "#/login"; } else signedIn(); }
     catch (err) { toast(err.message); }
   };
 }
@@ -155,7 +156,8 @@ async function viewStart() {
 
 // ---------------- recorder ----------------
 // Captures audio, resamples to 16 kHz mono 16-bit PCM in an AudioWorklet and uploads ~10 s chunks in order.
-const WORKLET = `class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.pos=0;this.buf=[];this.sq=0;this.n=0}
+const WORKLET = `class P extends AudioWorkletProcessor{constructor(){super();this.r=sampleRate/16000;this.pos=0;this.buf=[];this.sq=0;this.n=0;
+this.port.onmessage=()=>{if(this.buf.length){this.port.postMessage({pcm:Int16Array.from(this.buf),rms:Math.sqrt(this.sq/this.n)});this.buf=[];this.sq=0;this.n=0}this.port.postMessage({flushed:true})}}
 process(inp){const ch=inp[0];if(!ch||!ch[0])return true;const L=ch[0].length;const x=new Float32Array(L);
 for(let c=0;c<ch.length;c++){const d=ch[c];for(let i=0;i<L;i++)x[i]+=d[i]/ch.length}
 let p=this.pos;while(p<L){const i=Math.floor(p),f=p-i,a=x[i],b=i+1<L?x[i+1]:a;let v=a+(b-a)*f;v=Math.max(-1,Math.min(1,v));
@@ -187,7 +189,9 @@ class Recorder {
   start() { this.running = true; this.ctx.resume(); this.wake(); this._vis = () => document.visibilityState === "visible" && this.wake();
     document.addEventListener("visibilitychange", this._vis); }
   async wake() { try { this.lock = await navigator.wakeLock.request("screen"); } catch {} }
-  onPcm({ pcm, rms }) {
+  flush() { return new Promise((res) => { this._flushed = res; this.node.port.postMessage("flush"); setTimeout(res, 1000); }); }
+  onPcm({ pcm, rms, flushed }) {
+    if (flushed) { if (this._flushed) this._flushed(); return; }
     this.level = rms;
     if (!this.running || this.paused) return;
     this.parts.push(pcm); this.partLen += pcm.length; this.elapsed += pcm.length / 16000;
@@ -214,6 +218,7 @@ class Recorder {
     this.uploading = false;
   }
   async stop() {
+    try { await this.flush(); } catch {}
     this.running = false; this.cut();
     this.streams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
     try { await this.ctx.close(); } catch {}
@@ -428,12 +433,13 @@ async function viewMe() {
   const me = S.me = await api("/api/me");
   view().innerHTML = `<div class="card"><h1>${esc(me.name)}</h1><p class="muted">${esc(me.email || "")} ${esc(me.phone || "")} · ${esc(me.role)}</p>
     ${S.cfg.telegram_bot ? `<p>Telegram: ${me.telegram_linked ? "linked ✓" : "not linked"} <button class="secondary" id="tg">${me.telegram_linked ? "Re-link" : "Link Telegram"}</button></p>` : ""}
-    <form id="pw"><label>Change password</label><div class="row"><input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="New password">
+    <form id="pw"><label>Change password</label><div class="row"><input type="password" name="current_password" autocomplete="current-password" placeholder="Current password (if you have one)">
+      <input type="password" name="password" minlength="8" autocomplete="new-password" placeholder="New password">
       <button style="flex:0">Save</button></div></form>
     <div class="actions"><button class="danger" id="out">Sign out</button></div>
     <p class="muted">${esc(S.cfg.company)} · Meeting Minutes v${esc(S.cfg.version)}</p></div>`;
   if ($("#tg")) $("#tg").onclick = async () => { try { const r = await api("/api/me/telegram-link", { method: "POST" }); location.href = r.url; } catch (e) { toast(e.message); } };
-  $("#pw").onsubmit = async (e) => { e.preventDefault(); try { await api("/api/me/password", { method: "POST", json: { password: e.target.password.value } }); toast("Password changed"); e.target.reset(); } catch (err) { toast(err.message); } };
+  $("#pw").onsubmit = async (e) => { e.preventDefault(); try { await api("/api/me/password", { method: "POST", json: { password: e.target.password.value, current_password: e.target.current_password.value || null } }); toast("Password changed"); e.target.reset(); } catch (err) { toast(err.message); } };
   $("#out").onclick = async () => { await api("/api/auth/logout", { method: "POST" }); S.me = null; S.people = []; location.hash = "#/login"; };
 }
 

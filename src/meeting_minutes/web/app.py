@@ -72,6 +72,10 @@ class PasswordIn(BaseModel):
     password: str = Field(min_length=8)
 
 
+class ChangePasswordIn(PasswordIn):
+    current_password: str | None = None
+
+
 class PersonIn(BaseModel):
     name: str
     email: str | None = None
@@ -139,6 +143,11 @@ def can_manage(m: Meeting, u: Person) -> bool:
     return u.is_admin or u.id in (m.chair_id, m.created_by_id)
 
 
+def can_read_content(m: Meeting, u: Person) -> bool:
+    """Attendees see minutes and transcript only after the chair approved them."""
+    return m.approved_at is not None or can_manage(m, u)
+
+
 def get_meeting(db: Session, mid: int, u: Person, manage: bool = False) -> Meeting:
     m = db.get(Meeting, mid)
     if not m or not can_view(m, u):
@@ -156,6 +165,7 @@ def _set_cookie(resp: Response, svc: pipeline.Services, token: str) -> None:
 
 def create_app(svc: pipeline.Services | None = None) -> FastAPI:
     svc = svc or pipeline.default_services()
+    svc.settings.check_secret()
     init_db()
     app = FastAPI(title="meeting-minutes", version=__version__, docs_url="/api/docs", openapi_url="/api/openapi.json")
     app.state.svc = svc
@@ -220,6 +230,9 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
             person.password_hash = auth.hash_password(body.password)
         except auth.AuthError as e:
             raise HTTPException(400, str(e)) from None
+        if svc.company.auth.method != "password":
+            db.commit()  # one-time codes are required: the person signs in normally
+            return {"ok": True, "sign_in": True}
         _set_cookie(response, svc, auth.create_session(db, svc.company, secret, person))
         db.commit()
         return {"ok": True, "user": person_out(person)}
@@ -229,8 +242,10 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
         return person_out(user, full=True)
 
     @app.post("/api/me/password")
-    def change_password(body: PasswordIn, user: Person = Depends(current_user), db: Session = Depends(get_db)):
+    def change_password(body: ChangePasswordIn, user: Person = Depends(current_user), db: Session = Depends(get_db)):
         user = db.merge(user)
+        if user.password_hash and not auth.verify_password(user, body.current_password or ""):
+            raise HTTPException(403, "current password is wrong")
         user.password_hash = auth.hash_password(body.password)
         db.commit()
         return {"ok": True}
@@ -324,6 +339,8 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
         people = pipeline.people_map(db)
         out = meeting_out(m)
         out["can_manage"] = can_manage(m, user)
+        if not can_read_content(m, user):
+            return {**out, "minutes": None, "speakers": [], "transcript": [], "tasks": []}
         out["minutes"] = m.minutes
         out["speakers"] = [{"label": s.label, "person_id": s.person_id, "auto_matched": s.auto_matched,
                             "score": s.match_score, "seconds": s.seconds} for s in m.speakers]
@@ -338,7 +355,7 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
     def live(mid: int, after: int = 0, user: Person = Depends(current_user), db: Session = Depends(get_db)):
         m = get_meeting(db, mid, user)
         utts = db.scalars(select(Utterance).where(Utterance.meeting_id == m.id, Utterance.id > after)
-                          .order_by(Utterance.id).limit(200))
+                          .order_by(Utterance.id).limit(200)) if can_read_content(m, user) else []
         return {"status": m.status, "audio_seconds": round(m.audio_seconds, 1),
                 "processed_seconds": round(m.processed_seconds, 1),
                 "lines": [{"id": u.id, "t": hms(u.start), "text": u.text} for u in utts]}
@@ -418,7 +435,7 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
     @app.get("/api/meetings/{mid}/minutes.pdf")
     def minutes_pdf(mid: int, user: Person = Depends(current_user), db: Session = Depends(get_db)):
         m = get_meeting(db, mid, user)
-        if not m.minutes:
+        if not m.minutes or not can_read_content(m, user):
             raise HTTPException(404, "no minutes yet")
         pdf = render_pdf(render_minutes_html(svc.company, m, pipeline.people_map(db)))
         return Response(pdf, media_type="application/pdf",
@@ -427,6 +444,8 @@ def create_app(svc: pipeline.Services | None = None) -> FastAPI:
     @app.get("/api/meetings/{mid}/transcript.txt")
     def transcript_txt(mid: int, user: Person = Depends(current_user), db: Session = Depends(get_db)):
         m = get_meeting(db, mid, user)
+        if not can_read_content(m, user):
+            raise HTTPException(404, "no transcript yet")
         return PlainTextResponse(render_transcript_text(svc.company, m, pipeline.people_map(db)))
 
     # ----- tasks -----

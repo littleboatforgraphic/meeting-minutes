@@ -315,7 +315,8 @@ def distribute(db: Session, svc: Services, meeting: Meeting) -> int:
     sink = get_sink(svc.company)
     for t in tasks:
         t.external_ref = sink.push(t, people.get(t.owner_id)) or t.external_ref
-    recipients = set(participant_ids(meeting)) | {t.owner_id for t in tasks if t.owner_id}
+    participants = set(participant_ids(meeting))
+    recipients = participants | {t.owner_id for t in tasks if t.owner_id}
     summary = (meeting.minutes or {}).get("summary", "")
     sent = 0
     for pid in sorted(recipients):
@@ -325,8 +326,13 @@ def distribute(db: Session, svc: Services, meeting: Meeting) -> int:
         mine = [t for t in tasks if t.owner_id == pid]
         body = summary + "\n\n" + ("Your tasks:\n" + "\n".join(f"- {task_line(t)}" for t in mine) if mine
                                    else "You have no tasks from this meeting.")
-        msg = Message(subject=f"Minutes: {meeting.title}", text=body, html=html, attachments=files,
-                      link=svc.url(f"/meetings/{meeting.id}"), link_label="Open minutes", buttons=task_buttons(mine))
+        if pid in participants:
+            msg = Message(subject=f"Minutes: {meeting.title}", text=body, html=html, attachments=files,
+                          link=svc.url(f"/meetings/{meeting.id}"), link_label="Open minutes", buttons=task_buttons(mine))
+        else:  # assigned a task but not in the meeting: their tasks only, not the minutes/transcript
+            msg = Message(subject=f"Tasks from: {meeting.title}",
+                          text="Your tasks:\n" + "\n".join(f"- {task_line(t)}" for t in mine),
+                          link=svc.url("/tasks"), link_label="My tasks", buttons=task_buttons(mine))
         if svc.dispatcher.send(db, person, msg, "minutes", meeting.id):
             sent += 1
     meeting.status, meeting.distributed_at = "distributed", utcnow()

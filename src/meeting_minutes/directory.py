@@ -70,6 +70,8 @@ def upsert_people(db: Session, rows: list[dict], country_code: str = "60") -> di
             person = db.scalar(select(Person).where(Person.phone == phone))
         if not person:
             person = db.scalar(select(Person).where(func.lower(Person.name) == rec["name"].lower()))
+        if person and email and person.email and person.email.lower() != email:
+            person = None  # same name/phone but a different email: a different employee, never overwrite their login
         if not person:
             person = Person(name=rec["name"])
             db.add(person)

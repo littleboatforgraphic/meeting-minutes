@@ -64,6 +64,9 @@ def test_record_approve_distribute_via_api(env):
     mei_c = client(svc)
     login(mei_c, "012-3456789", "mei-password")
     assert mei_c.get(f"/api/meetings/{m['id']}").status_code == 200  # attendee can view
+    hidden = mei_c.get(f"/api/meetings/{m['id']}").json()
+    assert hidden["minutes"] is None and hidden["transcript"] == []  # not before the chair approves
+    assert mei_c.get(f"/api/meetings/{m['id']}/minutes.pdf").status_code == 404
     assert mei_c.post(f"/api/meetings/{m['id']}/approve", json={}).status_code == 403
 
     minutes = d["minutes"]
@@ -74,6 +77,7 @@ def test_record_approve_distribute_via_api(env):
     drain(svc)
     assert c.get(f"/api/meetings/{m['id']}").json()["status"] == "distributed"
     assert c.get(f"/api/meetings/{m['id']}/minutes.pdf").content.startswith(b"%PDF")
+    assert mei_c.get(f"/api/meetings/{m['id']}").json()["minutes"] is not None
 
     mine = mei_c.get("/api/tasks").json()
     assert [(t["title"], t["due_date"]) for t in mine] == [("Follow up with the steel supplier", "2026-10-30")]
@@ -187,3 +191,44 @@ def test_static_app_served(env):
     c = client(make_services())
     assert "Meeting Minutes" in c.get("/").text
     assert c.get("/app.js").status_code == 200
+
+
+def test_invite_with_otp_requires_sign_in(make_env):
+    make_env(auth__method="password+otp")
+    svc = make_services()
+    _, mei = add_people()
+    with session_scope() as db:
+        token = auth.create_link_token(db, svc.settings.secret_key, db.get(Person, mei), "invite")
+    c = client(svc)
+    assert c.post(f"/api/auth/invite/{token}", json={"password": "new-password"}).json() == {"ok": True, "sign_in": True}
+    assert c.get("/api/me").status_code == 401
+
+
+def test_password_change_needs_current_password(env):
+    svc = make_services()
+    add_people()
+    c = client(svc)
+    login(c, "ali@acme.my", "ali-password")
+    assert c.post("/api/me/password", json={"password": "new-password"}).status_code == 403
+    assert c.post("/api/me/password", json={"password": "new-password", "current_password": "wrong"}).status_code == 403
+    assert c.post("/api/me/password", json={"password": "new-password", "current_password": "ali-password"}).status_code == 200
+    login(client(svc), "ali@acme.my", "new-password")
+
+
+def test_placeholder_secret_refused(make_env, monkeypatch):
+    make_env()
+    monkeypatch.setenv("MM_SECRET_KEY", "change-me")
+    from meeting_minutes.settings import Settings
+
+    with pytest.raises(RuntimeError):
+        Settings().check_secret()
+
+
+def test_interrupted_job_is_requeued(env):
+    from meeting_minutes.db import Job
+
+    with session_scope() as db:
+        db.add(Job(kind="finalize", meeting_id=None, payload={}, status="running", attempts=1))
+    assert jobs.requeue_running() == 1
+    with session_scope() as db:
+        assert db.scalar(select(Job)).status == "queued"

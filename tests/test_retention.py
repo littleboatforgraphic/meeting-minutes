@@ -31,9 +31,11 @@ def test_transcript_week_minutes_three_months(env):
     with session_scope() as db:
         purge(db, svc.company, svc.settings, now + timedelta(days=85))
     with session_scope() as db:
-        assert [m.title for m in db.scalars(select(Meeting))] == ["New"]
-        assert db.scalar(select(Task)).meeting_id is None  # tasks keep their own 90 days from creation
+        old = db.scalar(select(Meeting).where(Meeting.title == "Old"))
+        assert old.minutes is None  # minutes gone, row kept so its tasks stay linked (chair view)
+        assert db.scalar(select(Task)).meeting_id == old.id  # tasks keep their own 90 days from creation
     with session_scope() as db:
         purge(db, svc.company, svc.settings, now + timedelta(days=91))
     with session_scope() as db:
         assert db.scalar(select(Task)) is None
+        assert [m.title for m in db.scalars(select(Meeting))] == ["New"]
