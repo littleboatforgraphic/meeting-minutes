@@ -38,4 +38,4 @@ def test_transcript_week_minutes_three_months(env):
         purge(db, svc.company, svc.settings, now + timedelta(days=91))
     with session_scope() as db:
         assert db.scalar(select(Task)) is None
-        assert [m.title for m in db.scalars(select(Meeting))] == ["New"]
+        assert db.scalar(select(Meeting)) is None
