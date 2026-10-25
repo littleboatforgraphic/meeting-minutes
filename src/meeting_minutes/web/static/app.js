@@ -93,7 +93,7 @@ async function signedIn() { S.me = await api("/api/me"); S.people = []; location
 async function viewInvite(token) {
   view().innerHTML = `<div class="card" style="max-width:420px;margin:30px auto"><h1>Set your password</h1>
     <form><label>New password (8+ characters)</label><input name="password" type="password" minlength="8" autocomplete="new-password" required>
-    <div class="actions"><button>Save and sign in</button></div></form></div>`;
+    <div class="actions"><button>${S.cfg && S.cfg.auth_method !== "password" ? "Save password" : "Save and sign in"}</button></div></form></div>`;
   $("form").onsubmit = async (e) => {
     e.preventDefault();
     try { const r = await api(`/api/auth/invite/${encodeURIComponent(token)}`, { method: "POST", json: { password: e.target.password.value } });
