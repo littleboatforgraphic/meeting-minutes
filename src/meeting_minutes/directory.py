@@ -70,6 +70,8 @@ def upsert_people(db: Session, rows: list[dict], country_code: str = "60") -> di
             person = db.scalar(select(Person).where(Person.phone == phone))
         if not person:
             person = db.scalar(select(Person).where(func.lower(Person.name) == rec["name"].lower()))
+        if person and email and person.email and person.email.lower() != email:
+            person = None  # same name/phone but a different email: a different employee, never overwrite their login
         if not person:
             person = Person(name=rec["name"])
             db.add(person)
@@ -78,7 +80,8 @@ def upsert_people(db: Session, rows: list[dict], country_code: str = "60") -> di
             stats["updated"] += 1
         person.name = rec["name"]
         person.email = email or person.email
-        person.phone = phone or person.phone
+        if phone and not db.scalar(select(Person.id).where(Person.phone == phone, Person.id != person.id)):
+            person.phone = phone  # a phone already held by someone else stays with them
         if rec.get("telegram_username"):
             person.telegram_username = rec["telegram_username"].lstrip("@")
         if rec.get("erp_user_id"):

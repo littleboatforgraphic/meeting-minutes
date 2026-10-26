@@ -8,7 +8,7 @@ import traceback
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from . import pipeline, retention, tasks
@@ -109,8 +109,19 @@ def run_periodic(svc: pipeline.Services, now: datetime | None = None) -> None:
         db.close()
 
 
+def requeue_running() -> int:
+    """Jobs left 'running' by a worker that died; there is one worker per stack, so at startup they are stale."""
+    db = new_session()
+    try:
+        n = db.execute(update(Job).where(Job.status == "running").values(status="queued", run_after=utcnow())).rowcount
+        db.commit()
+        return n or 0
+    finally:
+        db.close()
+
+
 def worker_loop(svc: pipeline.Services, idle_sleep: float = 2.0) -> None:
-    log.info("worker started")
+    log.info("worker started; requeued %d interrupted job(s)", requeue_running())
     last_periodic = 0.0
     while True:
         if time.monotonic() - last_periodic > 60:

@@ -13,6 +13,9 @@ def _env(name: str, default: str | None = None) -> str | None:
     return value if value not in (None, "") else default
 
 
+WEAK_SECRETS = {"dev-insecure-secret", "change-me"}
+
+
 @dataclass(frozen=True)
 class Settings:
     company_config: Path = field(default_factory=lambda: Path(_env("MM_COMPANY_CONFIG", "config/company.yaml")))
@@ -48,6 +51,10 @@ class Settings:
     @property
     def secure_cookies(self) -> bool:
         return self.public_base_url.startswith("https://")
+
+    def check_secret(self) -> None:
+        if self.secure_cookies and self.secret_key in WEAK_SECRETS:
+            raise RuntimeError("MM_SECRET_KEY is a placeholder; set a random value (scripts/new-company.sh does this)")
 
 
 @lru_cache

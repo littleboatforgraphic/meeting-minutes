@@ -68,3 +68,40 @@ def test_cluster_and_match():
     assert labels[0] == labels[1] != labels[2] and labels[3] is None
     m = voice.match_speakers({"S1": a, "S2": b}, {7: voice.normalize(a), 8: voice.normalize(np.eye(4)[2])}, 0.6)
     assert m == {"S1": (7, m["S1"][1])}
+
+
+def test_directory_does_not_merge_people_with_different_emails(env):
+    from meeting_minutes.db import Person, session_scope
+    from meeting_minutes.directory import upsert_people
+
+    with session_scope() as db:
+        upsert_people(db, [{"name": "Lim Wei", "email": "lim.wei@acme.my"}])
+        stats = upsert_people(db, [{"name": "Lim Wei", "email": "wei.lim@acme.my"}])
+        assert stats == {"created": 1, "updated": 0}
+        emails = sorted(p.email for p in db.query(Person).all())
+        assert emails == ["lim.wei@acme.my", "wei.lim@acme.my"]
+
+
+def test_long_transcript_is_split_and_merged():
+    from datetime import date
+
+    from fakes import MINUTES, FakeLLM
+
+    from meeting_minutes.extraction import extract_minutes
+
+    llm = FakeLLM(MINUTES)
+    draft = extract_minutes(llm, model="m", temperature=0, company_name="Acme", language="en", meeting_title="T",
+                            meeting_date=date(2026, 10, 20), timezone="Asia/Kuala_Lumpur", attendees=[],
+                            transcript="\n".join(f"line {i}" for i in range(50)), max_chars=60)
+    assert len(llm.calls) > 2 and draft.title == MINUTES["title"]
+
+
+def test_directory_new_email_with_existing_phone(env):
+    from meeting_minutes.db import Person, session_scope
+    from meeting_minutes.directory import upsert_people
+
+    with session_scope() as db:
+        upsert_people(db, [{"name": "Lim Wei", "email": "lim.wei@acme.my", "phone": "012-3334444"}])
+        upsert_people(db, [{"name": "Lim Wei", "email": "wei.lim@acme.my", "phone": "012-3334444"}])
+        people = {p.email: p.phone for p in db.query(Person).all()}
+        assert people == {"lim.wei@acme.my": "60123334444", "wei.lim@acme.my": None}

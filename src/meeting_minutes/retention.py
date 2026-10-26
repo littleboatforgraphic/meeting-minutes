@@ -31,8 +31,12 @@ def purge(db: Session, company: CompanyConfig, settings: Settings, now: datetime
     cutoff = now - timedelta(days=r.minutes_days)
     old_meetings = list(db.scalars(select(Meeting).where(Meeting.started_at < cutoff)))
     for m in old_meetings:
-        db.execute(update(Task).where(Task.meeting_id == m.id).values(meeting_id=None))
-        db.delete(m)
+        if db.scalar(select(Task.id).where(Task.meeting_id == m.id).limit(1)):
+            m.minutes = None  # tasks kept longer than minutes: keep the meeting row (title, chair) for them
+            db.execute(delete(Utterance).where(Utterance.meeting_id == m.id))
+            m.transcript_purged = True
+        else:
+            db.delete(m)
     stats["meetings"] = len(old_meetings)
 
     # Safety net: audio of meetings that are no longer recording/processing, or older than a day.

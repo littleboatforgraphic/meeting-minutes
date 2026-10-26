@@ -58,7 +58,9 @@ def cmd_worker(args) -> int:
     from .jobs import worker_loop
 
     init_db()
-    worker_loop(_svc())
+    svc = _svc()
+    svc.settings.check_secret()
+    worker_loop(svc)
     return 0
 
 
