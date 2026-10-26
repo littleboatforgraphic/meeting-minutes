@@ -15,7 +15,7 @@ from . import voice
 from .asr import OpenAITranscriber, Transcriber, build_prompt
 from .audio import MeetingAudio, decode_bytes, pcm_seconds, pcm_to_wav
 from .company import CompanyConfig, get_company
-from .db import Meeting, Person, Speaker, Task, Utterance, Voiceprint, utcnow
+from .db import Meeting, Notification, Person, Speaker, Task, Utterance, Voiceprint, utcnow
 from .extraction import MinutesDraft, extract_minutes, transcript_text
 from .extraction import finalize as finalize_draft
 from .llm import make_client
@@ -318,10 +318,12 @@ def distribute(db: Session, svc: Services, meeting: Meeting) -> int:
     participants = set(participant_ids(meeting))
     recipients = participants | {t.owner_id for t in tasks if t.owner_id}
     summary = (meeting.minutes or {}).get("summary", "")
+    done = set(db.scalars(select(Notification.person_id).where(
+        Notification.kind == "minutes", Notification.meeting_id == meeting.id, Notification.status == "sent")))
     sent = 0
     for pid in sorted(recipients):
         person = people.get(pid)
-        if not person or not person.active:
+        if not person or not person.active or pid in done:  # already sent before a crash/retry
             continue
         mine = [t for t in tasks if t.owner_id == pid]
         body = summary + "\n\n" + ("Your tasks:\n" + "\n".join(f"- {task_line(t)}" for t in mine) if mine
@@ -335,6 +337,7 @@ def distribute(db: Session, svc: Services, meeting: Meeting) -> int:
                           link=svc.url("/tasks"), link_label="My tasks", buttons=task_buttons(mine))
         if svc.dispatcher.send(db, person, msg, "minutes", meeting.id):
             sent += 1
+        db.commit()  # record each send so a retried job skips this person
     meeting.status, meeting.distributed_at = "distributed", utcnow()
     db.flush()
     return sent

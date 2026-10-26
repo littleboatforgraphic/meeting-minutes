@@ -76,6 +76,10 @@ def test_full_meeting_flow(env):
     assert tg[-1][0] == "Tan Mei Ling" and "steel supplier" in tg[-1][1].text
     assert any(a.filename.endswith(".pdf") and a.content.startswith(b"%PDF") for a in email[-1][1].attachments)
     assert tg[-1][1].buttons and tg[-1][1].buttons[0][1].endswith(":done")
+    before = len(email) + len(tg)
+    with session_scope() as db:  # a retried distribute job must not resend
+        assert pipeline.distribute(db, svc, db.get(Meeting, mid)) == 0
+    assert len(email) + len(tg) == before
 
 
 def test_voiceprints_auto_label_next_meeting(env):
