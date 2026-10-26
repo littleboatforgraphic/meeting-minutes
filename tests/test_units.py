@@ -94,3 +94,14 @@ def test_long_transcript_is_split_and_merged():
                             meeting_date=date(2026, 10, 20), timezone="Asia/Kuala_Lumpur", attendees=[],
                             transcript="\n".join(f"line {i}" for i in range(50)), max_chars=60)
     assert len(llm.calls) > 2 and draft.title == MINUTES["title"]
+
+
+def test_directory_new_email_with_existing_phone(env):
+    from meeting_minutes.db import Person, session_scope
+    from meeting_minutes.directory import upsert_people
+
+    with session_scope() as db:
+        upsert_people(db, [{"name": "Lim Wei", "email": "lim.wei@acme.my", "phone": "012-3334444"}])
+        upsert_people(db, [{"name": "Lim Wei", "email": "wei.lim@acme.my", "phone": "012-3334444"}])
+        people = {p.email: p.phone for p in db.query(Person).all()}
+        assert people == {"lim.wei@acme.my": "60123334444", "wei.lim@acme.my": None}
